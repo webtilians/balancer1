@@ -106,10 +106,10 @@ def send_request(user_id):
         except requests.exceptions.RequestException as e:
             print(f"Error al enviar la solicitud: {e}")
 
-        time.sleep(random.uniform(0.5, 1))  # Pausa más corta para generar más carga
+        time.sleep(random.uniform(0.7, 1.5))  # Pausa más corta para generar más carga
 
 if __name__ == "__main__":
-    num_threads = 10
+    num_threads = 5
 
     threads = []
     for i in range(num_threads):
