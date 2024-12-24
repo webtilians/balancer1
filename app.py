@@ -224,6 +224,12 @@ analizador_solicitudes = AnalizadorSolicitudes()
 
 # --- RUTAS DE LA API ---
 
+@app.route('/num_servidores')
+def get_num_servidores():
+    global asignador_recursos
+    num_servidores = len(asignador_recursos.servidores)
+    return jsonify({'num_servidores': num_servidores})
+
 @app.route('/solicitud', methods=['POST'])
 def procesar_solicitud():
     global modelo_cargado
