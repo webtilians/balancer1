@@ -3,6 +3,7 @@ import time
 import random
 import csv
 import json
+from api.analizador_solicitudes import AnalizadorSolicitudes
 
 url = 'http://127.0.0.1:5000/solicitud'
 
@@ -21,12 +22,17 @@ csv_headers = [
     "servidor_asignado", "tiempo_asignacion", "tiempo_espera"
 ]
 
+# Instanciar el analizador de solicitudes
+analizador = AnalizadorSolicitudes()
+
 def send_request():
     while True:
         user_id = random.choice(users)
         request_type = random.choices(["compleja", "codigo"], weights=[0.6, 0.4])[0]
         text = random.choice(texts[request_type])
-        data = {'user_id': user_id, 'texto': text, 'request_type': request_type}
+        # Obtener las características de la solicitud, incluido el vector de spaCy
+        caracteristicas = analizador.analizar(text)
+        data = {'user_id': user_id, 'texto': text, 'request_type': request_type, 'caracteristicas': caracteristicas}
         try:
             inicio = time.time()
             response = requests.post(url, json=data)

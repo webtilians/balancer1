@@ -4,11 +4,12 @@ import numpy as np
 import time
 
 class EntornoBalanceo(gym.Env):
-    def __init__(self, asignador_recursos):
+    def __init__(self, asignador_recursos, num_servidores_max):
         super(EntornoBalanceo, self).__init__()
         self.asignador_recursos = asignador_recursos
+        self.num_servidores_max = num_servidores_max
         self.action_space = spaces.Discrete(3)  # 0: No hacer nada, 1: Crear servidor, 2: Eliminar servidor
-        self.observation_space = spaces.Box(low=0, high=100, shape=(self.asignador_recursos.num_servidores_max + 1,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=0, high=100, shape=(num_servidores_max + 1,), dtype=np.float32)
 
     def reset(self, seed=None):
         super().reset(seed=seed)
@@ -52,7 +53,7 @@ class EntornoBalanceo(gym.Env):
         longitud_cola = self.asignador_recursos.cola_solicitudes.qsize()
 
         # Asegurarse de que el estado tenga siempre la misma longitud
-        while len(carga_servidores) < self.asignador_recursos.num_servidores_max:
+        while len(carga_servidores) < self.num_servidores_max:
             carga_servidores.append(0.0)  # Rellenar con ceros si hay menos servidores que el máximo
 
         estado = np.array(carga_servidores + [longitud_cola], dtype=np.float32)

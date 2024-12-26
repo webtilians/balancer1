@@ -24,9 +24,10 @@ app.layout = html.Div([
     dcc.Graph(id='live-graph-cola'),
     dcc.Graph(id='live-graph-respuesta'),
     html.Div(id='live-num-servidores', style={'font-size': '24px', 'margin-top': '20px'}),
+    html.Div(id='live-saturacion', style={'font-size': '24px', 'margin-top': '20px'}),
     dcc.Interval(
         id='interval-component',
-        interval=5*1000,  # Actualizar cada 5 segundos
+        interval=2*1000,  # Actualizar cada 5 segundos
         n_intervals=0
     )
 ])
@@ -121,20 +122,29 @@ def actualizar_grafica_cola(n):
 def actualizar_grafica_respuesta(n):
     df = obtener_datos()
 
-    # Crear la figura para los tiempos de respuesta
+    # Convertir tiempos de respuesta a milisegundos
+    df['tiempo_respuesta_ms'] = df['tiempo_respuesta'] * 1000
+
+    # Crear la figura
     fig = go.Figure()
 
-    # Añadir traza para los tiempos de respuesta
-    fig.add_trace(go.Scatter(x=df['tiempo_inicio'], y=df['tiempo_respuesta'],
-                             mode='lines+markers',
-                             name='Tiempo de Respuesta'))
+    # Añadir traza (en ms)
+    fig.add_trace(go.Scatter(
+        x=df['tiempo_inicio'],
+        y=df['tiempo_respuesta_ms'],
+        mode='lines+markers',
+        name='Tiempo de Respuesta (ms)'
+    ))
 
-    # Actualizar el layout de la figura
-    fig.update_layout(title_text="Tiempos de Respuesta",
-                      xaxis_title="Tiempo",
-                      yaxis_title="Tiempo de Respuesta (s)")
+    # Configuración del layout
+    fig.update_layout(
+        title_text="Tiempos de Respuesta",
+        xaxis_title="Tiempo",
+        yaxis_title="Tiempo de Respuesta (ms)"
+    )
 
     return fig
+
 
 # Callback para actualizar el número de servidores activos
 @app.callback(Output('live-num-servidores', 'children'),
@@ -142,6 +152,47 @@ def actualizar_grafica_respuesta(n):
 def actualizar_numero_servidores(n):
     num_servidores = obtener_numero_servidores()
     return f"Número de Servidores Activos: {num_servidores}"
+
+def obtener_carga_promedio():
+    """Obtiene la carga promedio del sistema."""
+    df = obtener_datos()
+    if not df.empty:
+        # Suponiendo que 'demanda_predicha' puede ser representativo de la carga
+        return df['demanda_predicha'].mean()
+    return 0
+
+def obtener_longitud_cola():
+    """Obtiene la longitud de la cola de solicitudes."""
+    try:
+        response = requests.get(f"{api_url}/longitud_cola")  # Usar la ruta correcta
+        response.raise_for_status()
+        return response.json()['longitud_cola']
+    except requests.exceptions.RequestException as e:
+        print(f"Error al obtener la longitud de la cola: {e}")
+        return 0
+
+def calcular_color_saturacion(carga_promedio, longitud_cola):
+    """
+    Calcula el color del indicador de saturación basado en la carga promedio y la longitud de la cola.
+    """
+    # Escala de colores: verde -> amarillo -> naranja -> rojo
+    if carga_promedio < 50 and longitud_cola < 5:
+        return 'green'
+    elif carga_promedio < 75 and longitud_cola < 10:
+        return 'yellow'
+    elif carga_promedio < 90 and longitud_cola < 20:
+        return 'orange'
+    else:
+        return 'red'
+    
+# Añadir un callback para actualizar el indicador de saturación
+@app.callback(Output('live-saturacion', 'style'),
+              [Input('interval-component', 'n_intervals')])
+def actualizar_indicador_saturacion(n):
+    carga_promedio = obtener_carga_promedio()
+    longitud_cola = obtener_longitud_cola()
+    color = calcular_color_saturacion(carga_promedio, longitud_cola)
+    return {'background-color': color, 'padding': '10px', 'border-radius': '5px'}
 
 if __name__ == '__main__':
     app.run_server(debug=True)

@@ -7,10 +7,20 @@ from sklearn.model_selection import train_test_split
 import os
 import tensorflow as tf
 
+# Constantes
+FACTOR_LONGITUD = 0.01
+FACTOR_COMPLEJA = 0.5
+FACTOR_CODIGO = 1.0
+FACTOR_DEMANDA = 0.2
+TIEMPO_ARRANQUE = 0.5
+UMBRAL_ESCALADO_SUPERIOR = 5
+UMBRAL_ESCALADO_INFERIOR = 1
+INTERVALO_IMPRESION = 10
+
 class DemandPredictor:
     def __init__(self, model_path="demand_predictor_model.h5"):
         self.model_path = model_path
-        self.input_shape = (4,)  # Definir input_shape como atributo de la clase
+        self.input_shape = (104,)  # Ajustado el tamaño
         self.model = self.cargar_o_crear_modelo()
         self.trained = os.path.exists(self.model_path)
         self.mean = None  # Media para normalizar
@@ -86,17 +96,53 @@ class DemandPredictor:
             print("Advertencia: El modelo no ha sido entrenado. Se devuelve una predicción por defecto.")
             return 1.0
 
-        feature_vector = np.array([
-            features["longitud"],
-            1 if features["tipo"] == "simple" else 0,
-            1 if features["tipo"] == "compleja" else 0,
-            1 if features["tipo"] == "codigo" else 0
+        # Asegurarse de que 'features' es un diccionario
+        if not isinstance(features, dict):
+            print("Error: 'features' debe ser un diccionario.")
+            return 1.0
+
+        # Extraer y convertir características
+        longitud = features.get("longitud", 0)  # Valor por defecto 0 si no se encuentra
+        tipo = features.get("tipo", "simple")    # Valor por defecto "simple" si no se encuentra
+
+        # Convertir el tipo de solicitud a un vector one-hot
+        tipo_vector = [0, 0, 0]
+        if tipo == "simple":
+            tipo_vector[0] = 1
+        elif tipo == "compleja":
+            tipo_vector[1] = 1
+        elif tipo == "codigo":
+            tipo_vector[2] = 1
+
+        # Extraer el vector Word2Vec y asegurarse de que sea un array de NumPy
+        vector_w2v = features.get("vector_w2v", np.zeros(100))  # Asumiendo que Word2Vec tiene 100 dimensiones
+        if isinstance(vector_w2v, list):
+            vector_w2v = np.array(vector_w2v)
+
+        # Combinar todas las características en un solo vector
+        feature_vector = np.concatenate([
+            np.array([longitud]),
+            np.array(tipo_vector),
+            vector_w2v
         ])
 
         # Normalizar las características de entrada
         feature_vector = (feature_vector - self.mean) / self.std
 
-        predicted_demand = self.model.predict(np.array([feature_vector]))[0][0]
+        # Asegurarse de que el vector de características sea un array de NumPy y tenga la forma correcta
+        if not isinstance(feature_vector, np.ndarray):
+            print("Error: feature_vector no es un array de NumPy.")
+            return 1.0
+        if feature_vector.ndim == 1:
+            feature_vector = feature_vector.reshape(1, -1)
+
+        # Verificar la forma del vector de características
+        if feature_vector.shape[1] != self.input_shape[0]:
+            print(f"Error: La forma del vector de características no coincide con la forma de entrada del modelo. "
+                  f"Esperado: {self.input_shape}, Obtenido: {feature_vector.shape}")
+            return 1.0
+
+        predicted_demand = self.model.predict(feature_vector)[0][0]
         return predicted_demand
 
 class ServidorSimulado:
@@ -105,6 +151,7 @@ class ServidorSimulado:
         self.carga = 0
         self.arrancando = True  # Atributo para simular el arranque
         self.tiempo_arranque = 0.5
+        self.tiempos_procesamiento = []  # Lista para registrar los tiempos de procesamiento
         print(f"Servidor {self.id}: Iniciando...")
         time.sleep(self.tiempo_arranque)
         self.arrancando = False
@@ -121,10 +168,10 @@ class ServidorSimulado:
 
         print(f"Servidor {self.id}: Procesando solicitud. Longitud: {longitud}, Tipo: {tipo}, Demanda Predicha: {demanda_predicha}. Tiempo de espera en cola: {tiempo_espera:.4f}")
         # Cálculo del tiempo de procesamiento (incluyendo tipo de solicitud y demanda predicha)
-        tiempo_procesamiento = (longitud * 0.01 +
-                               (1 if tipo == "compleja" else 0) * 0.5 +
-                               (1 if tipo == "codigo" else 0) * 1 +
-                               demanda_predicha * 0.2 +
+        tiempo_procesamiento = (longitud * FACTOR_LONGITUD +
+                               (1 if tipo == "compleja" else 0) * FACTOR_COMPLEJA +
+                               (1 if tipo == "codigo" else 0) * FACTOR_CODIGO +
+                               demanda_predicha * FACTOR_DEMANDA +
                                random.uniform(-0.1, 0.1))  # Añadir un factor aleatorio
 
         # Asegurarse de que el tiempo de procesamiento no sea negativo
@@ -147,7 +194,22 @@ class ServidorSimulado:
 
         # Calcular y registrar métricas de latencia
         tiempo_respuesta = time.time() - timestamp_llegada
+
+        # Registrar el tiempo de procesamiento real
+        tiempo_procesamiento_real = time.time() - timestamp_llegada - tiempo_espera
+        self.tiempos_procesamiento.append(tiempo_procesamiento_real)
+
         print(f"Servidor {self.id}: Solicitud completada. Tiempo de respuesta: {tiempo_respuesta:.4f} segundos. Carga actual: {self.carga:.2f}")
+
+    def calcular_tasa_servicio(self):
+        """
+        Calcula la tasa de servicio promedio del servidor en solicitudes por segundo.
+        """
+        if len(self.tiempos_procesamiento) == 0:
+            return 0
+
+        tasa_servicio = 1 / np.mean(self.tiempos_procesamiento)
+        return tasa_servicio
 
 class AsignadorRecursos:
     def __init__(self, num_servidores_inicial, demand_predictor):
@@ -160,6 +222,9 @@ class AsignadorRecursos:
         self.intervalo_impresion = 10
         self.ultimo_tiempo_impresion = time.time()
         self.tiempos_llegada = []
+        self.tiempos_respuesta_recientes = []
+        self.servidor_creado_anteriormente = False
+        self.servidor_eliminado_anteriormente = False
 
     def asignar(self, user_id, caracteristicas):
         """Asigna una solicitud a la cola."""
@@ -171,59 +236,34 @@ class AsignadorRecursos:
         self.procesar_solicitudes()
         self.comprobar_escalado()
         return "encolada"
-
+    
     def procesar_solicitudes(self):
-        """
-        Procesa solicitudes de la cola, asignándolas a servidores libres.
-        """
         servidor_elegido = min(self.servidores, key=lambda s: s.carga)
-        # Solo asignar la solicitud si el servidor no está arrancando y hay solicitudes en la cola
-        if not servidor_elegido.arrancando and not self.cola_solicitudes.empty():
+        while not self.cola_solicitudes.empty() and not servidor_elegido.arrancando:
             user_id, caracteristicas, predicted_demand, timestamp_llegada = self.cola_solicitudes.get()
-
-            # Extraer 'longitud' y 'tipo' de 'caracteristicas'
             longitud = caracteristicas['longitud']
             tipo = caracteristicas['tipo']
 
-            # Calcular el tiempo de espera en la cola
-            tiempo_espera = time.time() - timestamp_llegada
-
-            # --- DEBUG ---
-            print(f"DEBUG - Intentando asignar solicitud de usuario {user_id} al servidor {servidor_elegido.id}")
-
-            # Comprobación adicional de 'arrancando' dentro de procesar_solicitud
-            if servidor_elegido.arrancando:
-                print(f"ERROR - Servidor {servidor_elegido.id} está arrancando, pero fue seleccionado para asignación.")
-                self.cola_solicitudes.put((user_id, caracteristicas, predicted_demand, timestamp_llegada))  # Devolver la solicitud a la cola
-                self.cola_solicitudes.task_done()
-                return
-
-            print(f"Asignando solicitud de usuario {user_id} al servidor {servidor_elegido.id} con demanda predicha de: {predicted_demand}, tiempo de espera en cola: {tiempo_espera:.4f}")
+            print(f"Asignando solicitud de usuario {user_id} al servidor {servidor_elegido.id} con demanda predicha de: {predicted_demand}")
 
             try:
-                # Registrar el tiempo de inicio de la asignación
                 tiempo_inicio_asignacion = time.time()
-
-                # Asignar la solicitud al servidor
-                servidor_elegido.procesar_solicitud(longitud, tipo, predicted_demand, timestamp_llegada)
-
-                # Registrar el tiempo de finalización de la asignación
+                tiempo_respuesta = servidor_elegido.procesar_solicitud(longitud, tipo, predicted_demand, timestamp_llegada)
                 tiempo_fin_asignacion = time.time()
 
-                # Calcular y registrar el tiempo de asignación
+                if tiempo_respuesta is not None:
+                    self.tiempos_respuesta_recientes.append(tiempo_respuesta)
+                    if len(self.tiempos_respuesta_recientes) > 10:
+                        self.tiempos_respuesta_recientes.pop(0)
+
                 tiempo_asignacion = tiempo_fin_asignacion - tiempo_inicio_asignacion
                 print(f"Tiempo de asignación para usuario {user_id}: {tiempo_asignacion:.4f} segundos")
 
             except Exception as e:
                 print(f"Error al procesar la solicitud del usuario {user_id}: {e}")
-                # Considera la posibilidad de volver a encolar la solicitud o manejar el error de otra manera
 
             finally:
                 self.cola_solicitudes.task_done()
-
-            # --- DEBUG ---
-            print(f"DEBUG - Servidor elegido: {servidor_elegido.id}, Carga del servidor: {servidor_elegido.carga:.2f}")
-            print(f"DEBUG - Tamaño de la cola después de asignar: {self.cola_solicitudes.qsize()}")
 
     def crear_servidor(self):
         """Añade un nuevo servidor a la lista de servidores."""
@@ -231,6 +271,7 @@ class AsignadorRecursos:
             nuevo_servidor_id = len(self.servidores)
             self.servidores.append(ServidorSimulado(nuevo_servidor_id))
             print(f"Nuevo servidor creado con ID {nuevo_servidor_id}. Total de servidores: {len(self.servidores)}")
+            self.servidor_creado_anteriormente = True  # Establecer el flag de creación de servidor
         else:
             print(f"No se pueden crear más servidores. Se ha alcanzado el límite máximo de {self.num_servidores_max} servidores.")
 
@@ -239,11 +280,21 @@ class AsignadorRecursos:
         if len(self.servidores) > 1:
             servidor_a_eliminar = self.servidores.pop()
             print(f"Servidor {servidor_a_eliminar.id} eliminado. Total de servidores: {len(self.servidores)}")
+            self.servidor_eliminado_anteriormente = True  # Establecer el flag de eliminación de servidor
         else:
             print("No se pueden eliminar más servidores. Se ha alcanzado el mínimo de 1 servidor.")
+            
+    def obtener_tiempos_respuesta_recientes(self, n):
+        """
+        Devuelve los últimos 'n' tiempos de respuesta registrados.
+        """
+        return self.tiempos_respuesta_recientes[-n:]
 
     def comprobar_escalado(self):
-        """Comprueba la carga total y escala el número de servidores si es necesario."""
+        """
+        Comprueba si la carga total de los servidores supera o cae por debajo de los umbrales definidos.
+        Escala el número de servidores en consecuencia.
+        """
         carga_total = sum(s.carga for s in self.servidores if not s.arrancando)
         num_servidores_activos = sum(1 for s in self.servidores if not s.arrancando)
         print(f"Carga total del sistema: {carga_total:.2f}, servidores activos: {num_servidores_activos}")
@@ -264,6 +315,8 @@ class AsignadorRecursos:
             print(f"Longitud de la cola de solicitudes: {self.cola_solicitudes.qsize()}")
             print("--------------------------\n")
             self.ultimo_tiempo_impresion = ahora
+
+    
             
     def calcular_tasa_llegadas(self):
         """
