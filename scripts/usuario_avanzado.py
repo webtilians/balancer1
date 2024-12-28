@@ -28,6 +28,8 @@ csv_headers = [
 # Instanciar el analizador de solicitudes
 analizador = AnalizadorSolicitudes()
 
+tiempos_respuesta = []
+
 # Crear archivo CSV si no existe
 def crear_csv():
     try:
@@ -38,70 +40,56 @@ def crear_csv():
         print(f"Error al crear el archivo CSV: {e}")
 
 # Enviar solicitudes simuladas
-def send_request():
+def send_request(csv_writer):
     while True:
+        user_id = random.choice(users)
+        request_type = random.choices(["compleja", "codigo"], weights=[0.6, 0.4])[0]
+        text = random.choice(texts[request_type])
+
+        caracteristicas = analizador.analizar(text)
+
+        data = {'user_id': user_id, 'texto': text, 'request_type': request_type, 'caracteristicas': caracteristicas}
         try:
-            user_id = random.choice(users)
-            request_type = random.choices(["compleja", "codigo"], weights=[0.6, 0.4])[0]
-            text = random.choice(texts[request_type])
-
-            # Analizar características
-            caracteristicas = analizador.analizar(text)
-
-
-            # Si caracteristicas contiene un array de NumPy, conviértelo a lista
-            if isinstance(caracteristicas.get("vector_spacy"), np.ndarray):
-                caracteristicas["vector_spacy"] = caracteristicas["vector_spacy"].tolist()
-            print(caracteristicas)
-            if isinstance(caracteristicas.get("vector_tfidf"), np.ndarray):
-                caracteristicas["vector_tfidf"] = caracteristicas["vector_tfidf"].tolist()
-            # print("Datos enviados:", json.dumps(data, indent=2))
-            # Datos iniciales
-            data = {
-                'user_id': user_id,
-                'texto': text,
-                'request_type': request_type,
-                'caracteristicas': caracteristicas
-            }
-
-            # Enviar la solicitud
             inicio = time.time()
             response = requests.post(url, json=data)
             response.raise_for_status()
             fin = time.time()
+            tiempo_respuesta = fin - inicio
+            tiempos_respuesta.append(tiempo_respuesta)
 
-            # Procesar la respuesta
             response_data = response.json()
 
-            # Obtener datos relevantes de la respuesta
             tiempo_asignacion = response_data.get('tiempo_asignacion', 0)
             demanda_predicha = float(response_data.get('demanda_predicha', 0))
             servidor_asignado = response_data.get('servidor_asignado', -1)
-            caracteristicas_respuesta = response_data.get("caracteristicas", {})
 
-            # Calcular el tiempo de espera
-            tiempo_espera = fin - inicio
+            csv_writer.writerow({
+                "tiempo_inicio": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(inicio)),
+                "tiempo_fin": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(fin)),
+                "user_id": user_id,
+                "tipo_solicitud": request_type,
+                "texto_solicitud": text,
+                "caracteristicas": json.dumps(caracteristicas),
+                "demanda_predicha": demanda_predicha,
+                "servidor_asignado": servidor_asignado,
+                "tiempo_asignacion": tiempo_asignacion,
+                "tiempo_espera": 0
+            })
 
-            # Guardar los datos en el CSV
-            with open(csv_filename, mode='a', newline='', encoding='utf-8') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=csv_headers)
-                writer.writerow({
-                    "tiempo_inicio": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(inicio)),
-                    "tiempo_fin": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(fin)),
-                    "user_id": user_id,
-                    "tipo_solicitud": request_type,
-                    "texto_solicitud": text,
-                    "caracteristicas": json.dumps(caracteristicas_respuesta),
-                    "demanda_predicha": demanda_predicha,
-                    "servidor_asignado": servidor_asignado,
-                    "tiempo_asignacion": tiempo_asignacion,
-                    "tiempo_espera": tiempo_espera
-                })
-
-            print(f"Solicitud enviada por {user_id} ({request_type}): {text}. Respuesta: {response.status_code} - {response_data}. Tiempo de respuesta: {tiempo_espera:.4f} segundos")
+            print(f"Solicitud enviada por {user_id} ({request_type}): {text}. Respuesta: {response.status_code} - {response_data}. Tiempo de respuesta: {tiempo_respuesta:.4f} segundos")
 
         except requests.exceptions.RequestException as e:
             print(f"Error al enviar la solicitud: {e}")
+            # Manejo específico de errores
+            if isinstance(e, requests.exceptions.ConnectionError):
+                print("Error de conexión: Asegúrate de que el servidor Flask esté corriendo.")
+            elif isinstance(e, requests.exceptions.Timeout):
+                print("Tiempo de espera agotado al enviar la solicitud.")
+            elif isinstance(e, requests.exceptions.HTTPError):
+                print(f"Error HTTP: {e.response.status_code} - {e.response.text}")
+            else:
+                print(f"Error desconocido al enviar la solicitud: {e}")
+
 
         time.sleep(random.uniform(0.5, 1.5))
 
@@ -131,8 +119,13 @@ def calculate_statistics():
 
 if __name__ == "__main__":
     try:
-        crear_csv()
-        send_request()
+        with open(csv_filename, mode='a', newline='', encoding='utf-8') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=csv_headers)
+            # Si el archivo está vacío, escribe los encabezados
+            if csvfile.tell() == 0:
+                writer.writeheader()
+            send_request(writer)
     except KeyboardInterrupt:
         print("Simulación finalizada.")
         calculate_statistics()
+        requests.post('http://127.0.0.1:5000/actualizar_perfiles')
