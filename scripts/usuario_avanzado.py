@@ -1,15 +1,13 @@
 import sys
 import os
-
-# Agregar el directorio raíz del proyecto al PYTHONPATH
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import requests
 import time
 import random
 import csv
 import json
 from api.analizador_solicitudes import AnalizadorSolicitudes
-import numpy as np
+
 # Configuración
 url = 'http://127.0.0.1:5000/solicitud'
 users = ["user_simulado_1", "user_simulado_2", "user_simulado_3"]
@@ -22,7 +20,7 @@ csv_filename = "datos_simulacion.csv"
 csv_headers = [
     "tiempo_inicio", "tiempo_fin", "user_id", "tipo_solicitud",
     "texto_solicitud", "caracteristicas", "demanda_predicha",
-    "servidor_asignado", "tiempo_asignacion", "tiempo_espera"
+    "servidor_asignado", "tiempo_asignacion", "tiempo_espera", "latencia_calculada"
 ]
 
 # Instanciar el analizador de solicitudes
@@ -54,6 +52,7 @@ def send_request(csv_writer):
             response = requests.post(url, json=data)
             response.raise_for_status()
             fin = time.time()
+            
             tiempo_respuesta = fin - inicio
             tiempos_respuesta.append(tiempo_respuesta)
 
@@ -62,6 +61,8 @@ def send_request(csv_writer):
             tiempo_asignacion = response_data.get('tiempo_asignacion', 0)
             demanda_predicha = float(response_data.get('demanda_predicha', 0))
             servidor_asignado = response_data.get('servidor_asignado', -1)
+
+            latencia_calculada = fin - inicio  # Cálculo directo de la latencia
 
             csv_writer.writerow({
                 "tiempo_inicio": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(inicio)),
@@ -73,14 +74,14 @@ def send_request(csv_writer):
                 "demanda_predicha": demanda_predicha,
                 "servidor_asignado": servidor_asignado,
                 "tiempo_asignacion": tiempo_asignacion,
-                "tiempo_espera": 0
+                "tiempo_espera": 0,
+                "latencia_calculada": latencia_calculada
             })
 
-            print(f"Solicitud enviada por {user_id} ({request_type}): {text}. Respuesta: {response.status_code} - {response_data}. Tiempo de respuesta: {tiempo_respuesta:.4f} segundos")
+            print(f"Solicitud enviada por {user_id} ({request_type}): {text}. Respuesta: {response.status_code} - {response_data}. Latencia: {latencia_calculada:.4f} segundos")
 
         except requests.exceptions.RequestException as e:
             print(f"Error al enviar la solicitud: {e}")
-            # Manejo específico de errores
             if isinstance(e, requests.exceptions.ConnectionError):
                 print("Error de conexión: Asegúrate de que el servidor Flask esté corriendo.")
             elif isinstance(e, requests.exceptions.Timeout):
@@ -89,7 +90,6 @@ def send_request(csv_writer):
                 print(f"Error HTTP: {e.response.status_code} - {e.response.text}")
             else:
                 print(f"Error desconocido al enviar la solicitud: {e}")
-
 
         time.sleep(random.uniform(0.5, 1.5))
 
@@ -100,19 +100,20 @@ def calculate_statistics():
         with open(csv_filename, mode='r', encoding='utf-8') as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
-                tiempos_respuesta.append(float(row['tiempo_espera']))
+                if row['latencia_calculada']:
+                    tiempos_respuesta.append(float(row['latencia_calculada']))
 
         if tiempos_respuesta:
             promedio = sum(tiempos_respuesta) / len(tiempos_respuesta)
             maximo = max(tiempos_respuesta)
             minimo = min(tiempos_respuesta)
 
-            print("\nEstadísticas de tiempos de respuesta:")
+            print("\nEstadísticas de latencias:")
             print(f"  Promedio: {promedio:.4f} segundos")
             print(f"  Máximo: {maximo:.4f} segundos")
             print(f"  Mínimo: {minimo:.4f} segundos")
         else:
-            print("No se registraron tiempos de respuesta.")
+            print("No se registraron latencias calculadas.")
 
     except Exception as e:
         print(f"Error al calcular estadísticas: {e}")
@@ -121,7 +122,6 @@ if __name__ == "__main__":
     try:
         with open(csv_filename, mode='a', newline='', encoding='utf-8') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=csv_headers)
-            # Si el archivo está vacío, escribe los encabezados
             if csvfile.tell() == 0:
                 writer.writeheader()
             send_request(writer)
