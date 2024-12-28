@@ -6,9 +6,10 @@ from tensorflow import keras
 from sklearn.model_selection import train_test_split
 import os
 import tensorflow as tf
-from demand_predictor import DemandPredictor
-from services.servidor import ServidorSimulado
+# from models.demand_predictor import DemandPredictor
 
+from services.servidor import ServidorSimulado
+# demand_predictor = DemandPredictor()
 # Constantes
 FACTOR_LONGITUD = 0.01
 FACTOR_COMPLEJA = 0.5
@@ -21,6 +22,7 @@ INTERVALO_IMPRESION = 10
 
 class AsignadorRecursos:
     def __init__(self, num_servidores_inicial, demand_predictor):
+        self.demand_predictor = demand_predictor
         self.num_servidores_max = 5
         self.servidores = [ServidorSimulado(i) for i in range(num_servidores_inicial)]
         self.demand_predictor = demand_predictor

@@ -6,11 +6,12 @@ import os
 class DemandPredictor:
     def __init__(self, model_path="demand_predictor_model.h5"):
         self.model_path = model_path
+        self.mean_path = model_path.replace(".h5", "_mean.npy")
+        self.std_path = model_path.replace(".h5", "_std.npy")
         self.input_shape = (304,)  # Ajustado el tamaño
         self.model = self.cargar_o_crear_modelo()
         self.trained = os.path.exists(self.model_path)
-        self.mean = None  # Media para normalizar
-        self.std = None   # Desviación estándar para normalizar
+        self.mean, self.std = self.cargar_normalizacion()
 
     def cargar_o_crear_modelo(self):
         """Carga el modelo desde el archivo si existe, de lo contrario crea uno nuevo."""
@@ -34,6 +35,26 @@ class DemandPredictor:
         model.compile(optimizer='adam', loss=keras.losses.MeanSquaredError())
         return model
 
+    def cargar_normalizacion(self):
+        """Carga los valores de normalización desde archivos."""
+        try:
+            mean = np.load(self.mean_path)
+            std = np.load(self.std_path)
+            print("Valores de normalización cargados correctamente.")
+            return mean, std
+        except FileNotFoundError:
+            print("Advertencia: No se encontraron valores de normalización. Será necesario entrenar el modelo.")
+            return None, None
+
+    def guardar_normalizacion(self):
+        """Guarda los valores de normalización en archivos."""
+        try:
+            np.save(self.mean_path, self.mean)
+            np.save(self.std_path, self.std)
+            print(f"Valores de normalización guardados en {self.mean_path} y {self.std_path}.")
+        except Exception as e:
+            print(f"Error al guardar los valores de normalización: {e}")
+
     def train(self, X, y, epochs=100, validation_split=0.0):  # Cambiar valor por defecto a 0.0
         """Entrena el modelo de red neuronal."""
         X = np.array(X)
@@ -45,9 +66,11 @@ class DemandPredictor:
         if not isinstance(y, np.ndarray):
             raise ValueError("y debe ser un array de NumPy")
 
-        # Normalizar los datos
+        # Calcular y guardar mean y std
         self.mean = X.mean(axis=0)
         self.std = X.std(axis=0)
+
+        # Normalizar los datos
         X = (X - self.mean) / self.std
 
         if validation_split > 0:
@@ -77,22 +100,32 @@ class DemandPredictor:
             print(f"Error durante el entrenamiento del modelo: {e}")
             return
 
-        # Guardar el modelo entrenado
+        # Guardar el modelo entrenado y los valores de normalización
         try:
             self.model.save(self.model_path)
-            print(f"Modelo guardado en {self.model_path}")
+            self.guardar_normalizacion()
+            print(f"Modelo y normalización guardados en {self.model_path}")
         except Exception as e:
-            print(f"Error al guardar el modelo: {e}")
+            print(f"Error al guardar el modelo o los parámetros: {e}")
 
     def predict(self, features):
         """Predice la demanda de recursos para una solicitud."""
+        if self.mean is None or self.std is None:
+            raise ValueError("El modelo no está entrenado o los datos no están normalizados.")
         if not self.trained:
             print("Advertencia: El modelo no ha sido entrenado. Se devuelve una predicción por defecto.")
             return 1.0
+        required_keys = ["longitud", "tipo", "vector_spacy"]
+        for key in required_keys:
+            if key not in features or features[key] is None:
+                raise ValueError(f"Error: La característica '{key}' no está presente o es inválida.")
 
         # Asegurarse de que 'features' es un diccionario
         if not isinstance(features, dict):
             print("Error: 'features' debe ser un diccionario.")
+            return 1.0
+        if not isinstance(features, dict) or "longitud" not in features or "tipo" not in features or "vector_spacy" not in features:
+            print("Error: Las características proporcionadas no son válidas.")
             return 1.0
 
         # Extraer y convertir características
@@ -108,7 +141,6 @@ class DemandPredictor:
         elif tipo == "codigo":
             tipo_vector[2] = 1
 
-        # Extraer el vector Word2Vec y asegurarse de que sea un array de NumPy
         # Extraer el vector spaCy y asegurarse de que sea un array de NumPy
         vector_spacy = features.get("vector_spacy", np.zeros(300))
         if isinstance(vector_spacy, list):

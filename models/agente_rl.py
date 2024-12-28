@@ -1,3 +1,9 @@
+import sys
+import os
+
+# Agregar el directorio raíz al PYTHONPATH
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
@@ -5,7 +11,7 @@ import time
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
 from services.asignador import AsignadorRecursos
-from demand_predictor import DemandPredictor
+from models.demand_predictor import DemandPredictor
 from entorno_rl import EntornoBalanceo
 from app import cargar_datos_entrenamiento
 

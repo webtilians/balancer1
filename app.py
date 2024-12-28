@@ -1,7 +1,7 @@
-from api.gestor_usuarios import GestorUsuarios
-from api.analizador_solicitudes import AnalizadorSolicitudes
+from flask import Flask
+from api.routes import api_routes
 from services.asignador import AsignadorRecursos
-from demand_predictor import DemandPredictor
+from models.demand_predictor import DemandPredictor
 import numpy as np
 import pandas as pd
 import time
@@ -9,7 +9,15 @@ import json
 from stable_baselines3 import PPO
 from entorno_rl import EntornoBalanceo
 import os
+import sys
 
+app = Flask(__name__)
+
+# Registrar las rutas
+app.register_blueprint(api_routes)
+
+# Agregar el directorio raíz al PYTHONPATH
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # --- CONFIGURACIÓN INICIAL ---
 
 # Hiperparámetros del modelo y del entorno
@@ -91,6 +99,7 @@ def cargar_datos_entrenamiento(ruta_csv):
 demand_predictor = DemandPredictor()
 
 # Cargar datos de entrenamiento
+
 X_train, y_train = cargar_datos_entrenamiento("data/datos_simulacion.csv")
 
 if X_train is not None and y_train is not None:
@@ -114,3 +123,6 @@ if X_train is not None and y_train is not None:
 else:
     print("No se pudieron cargar los datos de entrenamiento. Saliendo.")
     exit()
+    
+if __name__ == "__main__":
+    app.run(debug=True)

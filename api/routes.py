@@ -1,9 +1,10 @@
 from flask import Blueprint, request, jsonify
-
-from . import analizador_solicitudes, gestor_usuarios
-from .. import asignador_recursos
+from models.demand_predictor import DemandPredictor
+from api.gestor_usuarios import  GestorUsuarios
+from api.analizador_solicitudes import AnalizadorSolicitudes
 import time
 import json
+from config import asignador_recursos
 
 api_routes = Blueprint('api_routes', __name__)
 
@@ -20,23 +21,26 @@ def procesar_solicitud():
         texto_solicitud = data['texto']
 
         # Analizar la solicitud
-        caracteristicas = analizador_solicitudes.analizar(texto_solicitud)
+        analizador=AnalizadorSolicitudes()
+        caracteristicas = analizador.analizar(texto_solicitud)
 
         # Registrar la solicitud en el historial del usuario
-        gestor_usuarios.registrar_solicitud(user_id, caracteristicas)
+        gestorUsuarios=GestorUsuarios()
+        gestorUsuarios.registrar_solicitud(user_id, caracteristicas)
 
         # Obtener el perfil del usuario
-        perfil = gestor_usuarios.obtener_perfil(user_id)
+        perfil = gestorUsuarios.obtener_perfil(user_id)
 
         # Registrar el tiempo de inicio
         inicio = time.time()
 
         # Obtener la predicción de la demanda (si el modelo está disponible)
-        try:
+        # asignador_recursos = AsignadorRecursos(num_servidores_inicial=1, demand_predictor=DemandPredictor)
+        if isinstance(caracteristicas, dict):
             demanda_predicha = asignador_recursos.demand_predictor.predict(caracteristicas)
-        except Exception as e:
-            print(f"Error al predecir la demanda: {e}")
-            demanda_predicha = 0.0  # Valor por defecto en caso de error
+        else:
+            raise ValueError("Caracteristicas no es un diccionario válido")
+
 
         # Asignar la solicitud a un servidor (sin usar RL, solo encolar)
         servidor_id = asignador_recursos.asignar(user_id, caracteristicas)
@@ -48,7 +52,8 @@ def procesar_solicitud():
         tiempo_asignacion = fin - inicio
 
         # Actualizar el perfil del usuario basado en su historial
-        gestor_usuarios.actualizar_perfil(user_id)
+        gestorUsuarios=GestorUsuarios()
+        gestorUsuarios.actualizar_perfil(user_id)
 
         caracteristicas_para_respuesta = {
             'longitud': caracteristicas['longitud'],
@@ -74,7 +79,7 @@ def procesar_solicitud():
 @api_routes.route('/actualizar_perfiles', methods=['POST'])
 def actualizar_perfiles():
     try:
-        gestor_usuarios.actualizar_perfiles()
+        GestorUsuarios.actualizar_perfiles()
         return jsonify({'mensaje': 'Perfiles de usuario actualizados correctamente'}), 200
     except Exception as e:
         print(f"Error al actualizar perfiles: {e}")
@@ -82,8 +87,8 @@ def actualizar_perfiles():
 
 @api_routes.route('/num_servidores')
 def get_num_servidores():
-    global asignador_recursos
-    num_servidores = len(asignador_recursos.servidores)
+    global AsignadorRecursos
+    num_servidores = len(AsignadorRecursos.servidores)
     return jsonify({'num_servidores': num_servidores})
 
 @api_routes.route('/longitud_cola')
