@@ -9,7 +9,7 @@ import json
 from api.analizador_solicitudes import AnalizadorSolicitudes
 
 # Configuración
-url = 'http://127.0.0.1:5000/solicitud'
+url = 'http://127.0.0.1:8000/solicitud'
 users = ["user_basico_1", "user_basico_2", "user_basico_3"]
 texts = {
     "general": ["Información básica de contacto", "Duda sobre el servicio", "Consulta general"]
@@ -57,9 +57,10 @@ def send_request(csv_writer):
 
             response_data = response.json()
 
-            tiempo_asignacion = response_data.get('tiempo_asignacion', 0)
-            demanda_predicha = float(response_data.get('demanda_predicha', 0))
-            servidor_asignado = response_data.get('servidor_asignado', -1)
+            tiempo_asignacion = response_data[0].get("tiempo_asignacion", 0)
+
+            demanda_predicha = float(response_data[0].get('demanda_predicha', 0))
+            servidor_asignado = response_data[0].get('servidor_asignado', -1)
 
             latencia_calculada = fin - inicio  # Cálculo directo de la latencia
 
@@ -127,4 +128,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("Simulación finalizada.")
         calculate_statistics()
-        requests.post('http://127.0.0.1:5000/actualizar_perfiles')
+        requests.post('http://127.0.0.1:8000/actualizar_perfiles')

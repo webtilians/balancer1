@@ -5,7 +5,7 @@ import threading
 import csv
 import json
 
-url = 'http://127.0.0.1:5000/solicitud'
+url = 'http://127.0.0.1:8000/solicitud'
 
 # Tipos de solicitud de ejemplo
 request_types = ["simple", "compleja", "codigo"]

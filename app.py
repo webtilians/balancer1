@@ -1,5 +1,5 @@
-from flask import Flask
-from api.routes import api_routes
+from fastapi import FastAPI
+from api.routes import router
 from services.asignador import AsignadorRecursos
 from models.demand_predictor import DemandPredictor
 import numpy as np
@@ -11,16 +11,16 @@ from entorno_rl import EntornoBalanceo
 import os
 import sys
 
-app = Flask(__name__)
+# Crear instancia de FastAPI
+app = FastAPI()
 
-# Registrar las rutas
-app.register_blueprint(api_routes)
+# Registrar las rutas desde el archivo `routes`
+app.include_router(router)
 
 # Agregar el directorio raíz al PYTHONPATH
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# --- CONFIGURACIÓN INICIAL ---
 
-# Hiperparámetros del modelo y del entorno
+# --- CONFIGURACIÓN INICIAL ---
 NUM_SERVIDORES_INICIAL = 1
 NUM_SERVIDORES_MAX = 5
 UMBRAL_ESCALADO_SUPERIOR = 5
@@ -28,7 +28,6 @@ UMBRAL_ESCALADO_INFERIOR = 1
 INTERVALO_IMPRESION = 10
 
 # --- CARGA DE DATOS DE ENTRENAMIENTO ---
-
 def cargar_datos_entrenamiento(archivo_csv):
     datos = pd.read_csv(archivo_csv)
     X = []
@@ -54,14 +53,11 @@ def cargar_datos_entrenamiento(archivo_csv):
     
     return np.array(X), np.array(y)
 
-
 # --- ENTRENAMIENTO DEL MODELO DE PREDICCIÓN DE DEMANDA ---
-
 # Instanciar el predictor de demanda
 demand_predictor = DemandPredictor()
 
 # Cargar datos de entrenamiento
-
 X_train, y_train = cargar_datos_entrenamiento("scripts/datos_entrenamiento.csv")
 
 if X_train is not None and y_train is not None:
@@ -85,6 +81,8 @@ if X_train is not None and y_train is not None:
 else:
     print("No se pudieron cargar los datos de entrenamiento. Saliendo.")
     exit()
-    
+
+# Iniciar el servidor Uvicorn
 if __name__ == "__main__":
-    app.run(debug=True)
+    import uvicorn
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

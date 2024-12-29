@@ -1,4 +1,7 @@
-from flask import Blueprint, request, jsonify
+from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import JSONResponse as jsonify
+from pydantic import BaseModel
+from typing import Dict
 from models.demand_predictor import DemandPredictor
 from api.gestor_usuarios import  GestorUsuarios
 from api.analizador_solicitudes import AnalizadorSolicitudes
@@ -6,12 +9,13 @@ import time
 import json
 from config import asignador_recursos
 
-api_routes = Blueprint('api_routes', __name__)
+# Crear un router para manejar las rutas
+router = APIRouter()
 
-@api_routes.route('/solicitud', methods=['POST'])
-def procesar_solicitud():
+@router.post('/solicitud')
+async def procesar_solicitud(request: Request):
     try:
-        data = request.get_json()
+        data =await request.json()
 
         # Validar la entrada
         if not data or 'user_id' not in data or 'texto' not in data:
@@ -76,7 +80,7 @@ def procesar_solicitud():
         return jsonify({'error': 'Error interno del servidor'}), 500
 
 # Nueva ruta para actualizar todos los perfiles
-@api_routes.route('/actualizar_perfiles', methods=['POST'])
+@router.post('/actualizar_perfiles')
 def actualizar_perfiles():
     try:
         GestorUsuarios.actualizar_perfiles()
@@ -85,13 +89,13 @@ def actualizar_perfiles():
         print(f"Error al actualizar perfiles: {e}")
         return jsonify({'error': 'Error interno del servidor al actualizar perfiles'}), 500
 
-@api_routes.route('/num_servidores')
+@router.get('/num_servidores')
 def get_num_servidores():
     global AsignadorRecursos
     num_servidores = len(AsignadorRecursos.servidores)
     return jsonify({'num_servidores': num_servidores})
 
-@api_routes.route('/longitud_cola')
+@router.get('/longitud_cola')
 def get_longitud_cola():
     global asignador_recursos
     longitud_cola = asignador_recursos.cola_solicitudes.qsize()

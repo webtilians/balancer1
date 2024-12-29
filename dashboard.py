@@ -15,7 +15,7 @@ server = app.server  # Exponer el servidor Flask para Dash
 NUM_SERVIDORES_MAX = 5  # Definir NUM_SERVIDORES_MAX antes de usarlo
 
 # URL de la API de tu aplicación Flask
-api_url = "http://127.0.0.1:5000"  # Ajusta si es necesario
+api_url = "http://127.0.0.1:8000"  # Ajusta si es necesario
 
 # Layout del dashboard
 app.layout = html.Div([

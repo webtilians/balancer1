@@ -4,7 +4,7 @@ import random
 import csv
 import json
 
-url = 'http://127.0.0.1:5000/solicitud'
+url = 'http://127.0.0.1:8000/solicitud'
 
 users = ["user_medio_1", "user_medio_2", "user_medio_3"]  # Usuarios medios
 texts = {
@@ -89,4 +89,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("Simulación finalizada.")
         calculate_statistics()
-        requests.post('http://127.0.0.1:5000/actualizar_perfiles')
+        requests.post('http://127.0.0.1:8000/actualizar_perfiles')
