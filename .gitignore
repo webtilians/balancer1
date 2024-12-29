@@ -4,7 +4,7 @@ nuevo_venv/
 # Ignorar archivos de compilación de Python
 *.pyc
 __pycache__/
-
+*.csv
 datos_simulacion.csv
 demand_predictor_model.h5
 *.pickle
