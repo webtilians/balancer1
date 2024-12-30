@@ -1,198 +1,161 @@
 import dash
-from dash import dcc, html, Input, Output
-import plotly.graph_objs as go
-import pandas as pd
+from dash import dcc, html, Input, Output, callback
+from dash import dash_table
 import requests
-import time
-import json
-import random
-import numpy as np
+import pandas as pd
+import plotly.express as px
 
-# Configuración inicial
-app = dash.Dash(__name__)
-server = app.server  # Exponer el servidor Flask para Dash
-
-NUM_SERVIDORES_MAX = 5  # Definir NUM_SERVIDORES_MAX antes de usarlo
-
-# URL de la API de tu aplicación Flask
-api_url = "http://127.0.0.1:8000"  # Ajusta si es necesario
+# Inicializa la app de Dash
+app = dash.Dash(__name__, suppress_callback_exceptions=True)
+app.title = "Dashboard de Métricas"
 
 # Layout del dashboard
 app.layout = html.Div([
-    html.H1("Monitor de Balanceo de Carga"),
-    dcc.Graph(id='live-graph-carga'),
-    dcc.Graph(id='live-graph-cola'),
-    dcc.Graph(id='live-graph-respuesta'),
-    html.Div(id='live-num-servidores', style={'font-size': '24px', 'margin-top': '20px'}),
-    html.Div(id='live-saturacion', style={'font-size': '24px', 'margin-top': '20px'}),
+    html.H1("Dashboard de Métricas", style={"textAlign": "center"}),
+
+    dcc.Tabs([
+        dcc.Tab(label="Métricas Generales", children=[
+            html.Div(id="metrics-container", children="Cargando métricas..."),
+
+            dash_table.DataTable(
+                id="recent-requests-table",
+                columns=[
+                    {"name": "Tiempo Inicio", "id": "tiempo_inicio"},
+                    {"name": "Tiempo Fin", "id": "tiempo_fin"},
+                    {"name": "Usuario", "id": "user_id"},
+                    {"name": "Tipo de Solicitud", "id": "tipo_solicitud"},
+                    {"name": "Demanda Predicha", "id": "demanda_predicha"},
+                    {"name": "Latencia Calculada", "id": "latencia_calculada"},
+                ],
+                style_table={"overflowX": "auto"},
+                page_size=10,
+            ),
+        ]),
+
+        dcc.Tab(label="Usuarios Básicos", children=[
+            dcc.Graph(id="basic-users-latency-graph"),
+            dcc.Graph(id="basic-users-demand-graph"),
+        ]),
+
+        dcc.Tab(label="Usuarios Avanzados", children=[
+            dcc.Graph(id="advanced-users-latency-graph"),
+            dcc.Graph(id="advanced-users-demand-graph"),
+        ]),
+    ]),
+
     dcc.Interval(
-        id='interval-component',
-        interval=2*1000,  # Actualizar cada 5 segundos
+        id="interval-component",
+        interval=10 * 1000,  # Actualización cada 10 segundos
         n_intervals=0
-    )
+    ),
 ])
 
-# Función para obtener datos de la API (simulando la obtención de datos del CSV)
-def obtener_datos():
+# Callback para actualizar métricas generales y tabla
+@app.callback(
+    [
+        Output("metrics-container", "children"),
+        Output("recent-requests-table", "data"),
+    ],
+    [Input("interval-component", "n_intervals")]
+)
+def update_metrics(n_intervals):
     try:
-        df = pd.read_csv("datos_simulacion.csv")
-        # Eliminar filas con valores NaN o infinitos
-        df = df.replace([np.inf, -np.inf], np.nan).dropna()
+        response = requests.get("http://127.0.0.1:8000/metrics")
+        if response.status_code != 200:
+            return "Error al obtener métricas.", []
 
-        # Convertir las características de JSON a diccionarios si es necesario
-        if 'caracteristicas' in df.columns:
-            df['caracteristicas'] = df['caracteristicas'].apply(lambda x: json.loads(x.replace("'", '"')) if isinstance(x, str) else x)
+        metrics = response.json().get("content", {})
 
-        # Asegurarse de que 'tiempo_inicio' es de tipo datetime
-        if 'tiempo_inicio' in df.columns:
-            df['tiempo_inicio'] = pd.to_datetime(df['tiempo_inicio'])
-        else:
-            # Si no existe, crea una columna con la marca de tiempo actual
-            df['tiempo_inicio'] = pd.Timestamp.now()
+        # Métricas Generales
+        usuarios_basicos = metrics.get("usuarios_basicos", {})
+        usuarios_avanzados = metrics.get("usuarios_avanzados", {})
 
-        # Asegurarse de que 'tiempo_respuesta' existe y es numérico
-        if 'tiempo_respuesta' not in df.columns:
-            df['tiempo_respuesta'] = 0.0  # O algún valor por defecto
-        else:
-            df['tiempo_respuesta'] = pd.to_numeric(df['tiempo_respuesta'], errors='coerce').fillna(0.0)
+        total_requests_basicos = usuarios_basicos.get("total_requests", "N/A")
+        avg_latency_basicos = usuarios_basicos.get("average_latency", "N/A")
+        avg_predicted_demand_basicos = usuarios_basicos.get("average_predicted_demand", "N/A")
 
-        # Aquí puedes agregar más columnas o cálculos si es necesario
+        total_requests_avanzados = usuarios_avanzados.get("total_requests", "N/A")
+        avg_latency_avanzados = usuarios_avanzados.get("average_latency", "N/A")
+        avg_predicted_demand_avanzados = usuarios_avanzados.get("average_predicted_demand", "N/A")
 
-        return df
+        metrics_summary = html.Div([
+            html.P(f"Total de Solicitudes (Básicos): {total_requests_basicos}"),
+            html.P(f"Latencia Promedio (Básicos): {avg_latency_basicos} ms"),
+            html.P(f"Demanda Predicha Promedio (Básicos): {avg_predicted_demand_basicos}"),
+            html.Br(),
+            html.P(f"Total de Solicitudes (Avanzados): {total_requests_avanzados}"),
+            html.P(f"Latencia Promedio (Avanzados): {avg_latency_avanzados} ms"),
+            html.P(f"Demanda Predicha Promedio (Avanzados): {avg_predicted_demand_avanzados}"),
+        ])
+
+        # Tabla de últimas solicitudes
+        last_requests = usuarios_basicos.get("last_requests", []) + usuarios_avanzados.get("last_requests", [])
+
+        return metrics_summary, last_requests
     except Exception as e:
-        print(f"Error al obtener datos: {e}")
-        return pd.DataFrame()  # Devuelve un DataFrame vacío en caso de error
+        return f"Error al procesar las métricas: {str(e)}", []
 
-# Función para obtener el número de servidores activos
-def obtener_numero_servidores():
+# Callback para actualizar gráficos de usuarios básicos
+@app.callback(
+    [
+        Output("basic-users-latency-graph", "figure"),
+        Output("basic-users-demand-graph", "figure"),
+    ],
+    [Input("interval-component", "n_intervals")]
+)
+def update_basic_users_graphs(n_intervals):
     try:
-        response = requests.get(f"{api_url}/num_servidores")
-        response.raise_for_status()
-        return response.json()['num_servidores']
-    except requests.exceptions.RequestException as e:
-        print(f"Error al obtener el número de servidores: {e}")
-        return 0
+        response = requests.get("http://127.0.0.1:8000/metrics")
+        if response.status_code != 200:
+            raise Exception("Error al obtener métricas de usuarios básicos.")
 
-# Callback para actualizar la gráfica de carga de los servidores
-@app.callback(Output('live-graph-carga', 'figure'),
-              [Input('interval-component', 'n_intervals')])
-def actualizar_grafica_carga(n):
-    df = obtener_datos()
+        metrics = response.json().get("content", {})
+        usuarios_basicos = metrics.get("usuarios_basicos", {})
+        last_requests = usuarios_basicos.get("last_requests", [])
 
-    # Crear la figura para la carga de los servidores
-    fig = go.Figure()
+        df = pd.DataFrame(last_requests)
 
-    # Añadir trazas para cada servidor
-    for i in range(NUM_SERVIDORES_MAX):
-        fig.add_trace(go.Scatter(x=df['tiempo_inicio'], y=df['demanda_predicha'],  # Reemplaza con la métrica correcta
-                                 mode='lines+markers',
-                                 name=f'Servidor {i}'))
+        if not df.empty:
+            latency_fig = px.histogram(df, x="latencia_calculada", title="Latencia de Usuarios Básicos")
+            demand_fig = px.histogram(df, x="demanda_predicha", title="Demanda Predicha de Usuarios Básicos")
+        else:
+            latency_fig = px.histogram(title="Latencia de Usuarios Básicos (Sin datos)")
+            demand_fig = px.histogram(title="Demanda Predicha de Usuarios Básicos (Sin datos)")
 
-    # Actualizar el layout de la figura
-    fig.update_layout(title_text="Carga de los Servidores",
-                      xaxis_title="Tiempo",
-                      yaxis_title="Carga")
+        return latency_fig, demand_fig
+    except Exception as e:
+        return px.histogram(title=f"Error: {str(e)}"), px.histogram(title=f"Error: {str(e)}")
 
-    return fig
-
-# Callback para actualizar la gráfica de longitud de la cola
-@app.callback(Output('live-graph-cola', 'figure'),
-              [Input('interval-component', 'n_intervals')])
-def actualizar_grafica_cola(n):
-    df = obtener_datos()
-
-    # Crear la figura para la longitud de la cola
-    fig = go.Figure()
-
-    # Añadir traza para la longitud de la cola
-    fig.add_trace(go.Scatter(x=df['tiempo_inicio'], y=df['tiempo_espera'],  # Reemplaza con la métrica correcta
-                             mode='lines+markers',
-                             name='Longitud de la Cola'))
-
-    # Actualizar el layout de la figura
-    fig.update_layout(title_text="Longitud de la Cola de Solicitudes",
-                      xaxis_title="Tiempo",
-                      yaxis_title="Longitud de la Cola")
-
-    return fig
-
-# Callback para actualizar la gráfica de tiempos de respuesta
-@app.callback(Output('live-graph-respuesta', 'figure'),
-              [Input('interval-component', 'n_intervals')])
-def actualizar_grafica_respuesta(n):
-    df = obtener_datos()
-
-    # Convertir tiempos de respuesta a milisegundos
-    df['tiempo_respuesta_ms'] = df['tiempo_respuesta'] * 1000
-
-    # Crear la figura
-    fig = go.Figure()
-
-    # Añadir traza (en ms)
-    fig.add_trace(go.Scatter(
-        x=df['tiempo_inicio'],
-        y=df['tiempo_respuesta_ms'],
-        mode='lines+markers',
-        name='Tiempo de Respuesta (ms)'
-    ))
-
-    # Configuración del layout
-    fig.update_layout(
-        title_text="Tiempos de Respuesta",
-        xaxis_title="Tiempo",
-        yaxis_title="Tiempo de Respuesta (ms)"
-    )
-
-    return fig
-
-
-# Callback para actualizar el número de servidores activos
-@app.callback(Output('live-num-servidores', 'children'),
-              [Input('interval-component', 'n_intervals')])
-def actualizar_numero_servidores(n):
-    num_servidores = obtener_numero_servidores()
-    return f"Número de Servidores Activos: {num_servidores}"
-
-def obtener_carga_promedio():
-    """Obtiene la carga promedio del sistema."""
-    df = obtener_datos()
-    if not df.empty:
-        # Suponiendo que 'demanda_predicha' puede ser representativo de la carga
-        return df['demanda_predicha'].mean()
-    return 0
-
-def obtener_longitud_cola():
-    """Obtiene la longitud de la cola de solicitudes."""
+# Callback para actualizar gráficos de usuarios avanzados
+@app.callback(
+    [
+        Output("advanced-users-latency-graph", "figure"),
+        Output("advanced-users-demand-graph", "figure"),
+    ],
+    [Input("interval-component", "n_intervals")]
+)
+def update_advanced_users_graphs(n_intervals):
     try:
-        response = requests.get(f"{api_url}/longitud_cola")  # Usar la ruta correcta
-        response.raise_for_status()
-        return response.json()['longitud_cola']
-    except requests.exceptions.RequestException as e:
-        print(f"Error al obtener la longitud de la cola: {e}")
-        return 0
+        response = requests.get("http://127.0.0.1:8000/metrics")
+        if response.status_code != 200:
+            raise Exception("Error al obtener métricas de usuarios avanzados.")
 
-def calcular_color_saturacion(carga_promedio, longitud_cola):
-    """
-    Calcula el color del indicador de saturación basado en la carga promedio y la longitud de la cola.
-    """
-    # Escala de colores: verde -> amarillo -> naranja -> rojo
-    if carga_promedio < 50 and longitud_cola < 5:
-        return 'green'
-    elif carga_promedio < 75 and longitud_cola < 10:
-        return 'yellow'
-    elif carga_promedio < 90 and longitud_cola < 20:
-        return 'orange'
-    else:
-        return 'red'
-    
-# Añadir un callback para actualizar el indicador de saturación
-@app.callback(Output('live-saturacion', 'style'),
-              [Input('interval-component', 'n_intervals')])
-def actualizar_indicador_saturacion(n):
-    carga_promedio = obtener_carga_promedio()
-    longitud_cola = obtener_longitud_cola()
-    color = calcular_color_saturacion(carga_promedio, longitud_cola)
-    return {'background-color': color, 'padding': '10px', 'border-radius': '5px'}
+        metrics = response.json().get("content", {})
+        usuarios_avanzados = metrics.get("usuarios_avanzados", {})
+        last_requests = usuarios_avanzados.get("last_requests", [])
 
-if __name__ == '__main__':
+        df = pd.DataFrame(last_requests)
+
+        if not df.empty:
+            latency_fig = px.histogram(df, x="latencia_calculada", title="Latencia de Usuarios Avanzados")
+            demand_fig = px.histogram(df, x="demanda_predicha", title="Demanda Predicha de Usuarios Avanzados")
+        else:
+            latency_fig = px.histogram(title="Latencia de Usuarios Avanzados (Sin datos)")
+            demand_fig = px.histogram(title="Demanda Predicha de Usuarios Avanzados (Sin datos)")
+
+        return latency_fig, demand_fig
+    except Exception as e:
+        return px.histogram(title=f"Error: {str(e)}"), px.histogram(title=f"Error: {str(e)}")
+
+if __name__ == "__main__":
     app.run_server(debug=True)

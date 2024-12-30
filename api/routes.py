@@ -8,9 +8,14 @@ from api.analizador_solicitudes import AnalizadorSolicitudes
 import time
 import json
 from config import asignador_recursos
-
+import pandas as pd
+import os
 # Crear un router para manejar las rutas
 router = APIRouter()
+
+
+
+
 
 @router.post('/solicitud')
 async def procesar_solicitud(request: Request):
@@ -78,6 +83,74 @@ async def procesar_solicitud(request: Request):
     except Exception as e:
         print(f"Error al procesar la solicitud: {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
+    
+@router.get("/monitoreo")
+async def monitoreo():
+    try:
+        # Lee el archivo de simulación
+        data = pd.read_csv("scripts/datos_simulacion.csv")
+
+        # Calcula estadísticas clave
+        latencia_promedio = data['latencia_calculada'].mean()
+        latencia_maxima = data['latencia_calculada'].max()
+        latencia_minima = data['latencia_calculada'].min()
+        demanda_promedio = data['demanda_predicha'].mean()
+
+        return {
+            "latencia_promedio": round(latencia_promedio, 2),
+            "latencia_maxima": round(latencia_maxima, 2),
+            "latencia_minima": round(latencia_minima, 2),
+            "demanda_promedio": round(demanda_promedio, 2),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+    
+# Archivos de datos
+data_file_basicos = "scripts/datos_usuario_basico.csv"
+data_file_avanzados = "scripts/datos_usuario_avanzado.csv"    
+    
+@router.get("/metrics")
+def get_metrics():
+    try:
+        response = {}
+
+        # Usuarios Básicos
+        if os.path.exists(data_file_basicos):
+            data_basicos = pd.read_csv(data_file_basicos)
+            total_requests_basicos = len(data_basicos)
+            avg_latency_basicos = data_basicos["latencia_calculada"].mean() if "latencia_calculada" in data_basicos else None
+            avg_predicted_demand_basicos = data_basicos["demanda_predicha"].mean() if "demanda_predicha" in data_basicos else None
+            last_20_basicos = data_basicos.tail(20).to_dict(orient="records")
+
+            response["usuarios_basicos"] = {
+                "total_requests": total_requests_basicos,
+                "average_latency": avg_latency_basicos,
+                "average_predicted_demand": avg_predicted_demand_basicos,
+                "last_requests": last_20_basicos,
+            }
+        else:
+            response["usuarios_basicos"] = {"error": "Archivo de usuarios básicos no encontrado."}
+
+        # Usuarios Avanzados
+        if os.path.exists(data_file_avanzados):
+            data_avanzados = pd.read_csv(data_file_avanzados)
+            total_requests_avanzados = len(data_avanzados)
+            avg_latency_avanzados = data_avanzados["latencia_calculada"].mean() if "latencia_calculada" in data_avanzados else None
+            avg_predicted_demand_avanzados = data_avanzados["demanda_predicha"].mean() if "demanda_predicha" in data_avanzados else None
+            last_20_avanzados = data_avanzados.tail(20).to_dict(orient="records")
+
+            response["usuarios_avanzados"] = {
+                "total_requests": total_requests_avanzados,
+                "average_latency": avg_latency_avanzados,
+                "average_predicted_demand": avg_predicted_demand_avanzados,
+                "last_requests": last_20_avanzados,
+            }
+        else:
+            response["usuarios_avanzados"] = {"error": "Archivo de usuarios avanzados no encontrado."}
+
+        return jsonify(content=response)
+    except Exception as e:
+        return jsonify(content={"error": str(e)}, status_code=500)    
 
 # Nueva ruta para actualizar todos los perfiles
 @router.post('/actualizar_perfiles')
